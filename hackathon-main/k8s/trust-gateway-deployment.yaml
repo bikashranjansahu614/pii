@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trust-gateway-api
+  namespace: security-governance
+  labels:
+    app.kubernetes.io/name: trust-gateway
+    tier: control-plane
+spec:
+  replicas: 3
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: trust-gateway-api
+  template:
+    metadata:
+      labels:
+        app: trust-gateway-api
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - trust-gateway-api
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: core-gateway
+          image: internal-registry.corp/trust/gateway:v2.4.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http-traffic
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1500m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+          capabilities:
+            drop:
+              - ALL
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          envFrom:
+            - secretRef:
+                name: gateway-secrets
+            - configMapRef:
+                name: gateway-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trust-gateway-svc
+  namespace: security-governance
+spec:
+  ports:
+    - port: 443
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: trust-gateway-api
+  type: ClusterIP
